@@ -159,7 +159,7 @@ func CreateCluster(c *cli.Context) error {
 	 * --server-arg, -x
 	 * Add user-supplied arguments for the k3s server
 	 */
-	if c.IsSet("server-arg") || c.IsSet("x") {
+	if len(c.StringSlice("server-arg")) > 0 || len(c.StringSlice("x")) > 0 {
 		k3sServerArgs = append(k3sServerArgs, c.StringSlice("server-arg")...)
 	}
 
@@ -167,7 +167,7 @@ func CreateCluster(c *cli.Context) error {
 	 * --agent-arg
 	 * Add user-supplied arguments for the k3s agent
 	 */
-	if c.IsSet("agent-arg") {
+	if len(c.StringSlice("agent-arg")) > 0 {
 		if c.Int("workers") < 1 {
 			log.Warnln("--agent-arg supplied, but --workers is 0, so no agents will be created")
 		}

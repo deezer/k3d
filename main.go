@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+	"gopkg.in/yaml.v2"
 
 	run "github.com/rancher/k3d/cli"
 	"github.com/rancher/k3d/version"
@@ -17,8 +20,26 @@ const defaultK3sClusterName string = "k3s-default"
 const defaultRegistryName = "registry.local"
 const defaultRegistryPort = 5000
 
+var (
+	defaultServerArgs = cli.StringSlice{}
+	defaultAgentArgs  = cli.StringSlice{}
+)
+
+// Config stores the loaded configuration file values
+type Config struct {
+	ClusterName string   `yaml:"cluster-name"`
+	ServerArgs  []string `yaml:"server-args"`
+	AgentArgs   []string `yaml:"agent-args"`
+	Workers     int      `yaml:"workers"`
+}
+
 // main represents the CLI application
 func main() {
+	// Configuration file loading
+	conf, confErr := loadConfig()
+	if confErr != nil {
+		panic(fmt.Sprintf("Error while loading configuration: %s", confErr))
+	}
 
 	// App Details
 	app := cli.NewApp()
@@ -42,7 +63,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "Set a name for the cluster",
 				},
 				cli.StringFlag{
@@ -65,7 +86,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "Set a name for the cluster",
 				},
 				cli.StringSliceFlag{
@@ -100,10 +121,12 @@ func main() {
 				cli.StringSliceFlag{
 					Name:  "server-arg, x",
 					Usage: "Pass an additional argument to k3s server (new flag per argument)",
+					Value: &defaultServerArgs,
 				},
 				cli.StringSliceFlag{
 					Name:  "agent-arg",
 					Usage: "Pass an additional argument to k3s agent (new flag per argument)",
+					Value: &defaultAgentArgs,
 				},
 				cli.StringSliceFlag{
 					Name:  "env, e",
@@ -115,7 +138,7 @@ func main() {
 				},
 				cli.IntFlag{
 					Name:  "workers, w",
-					Value: 0,
+					Value: conf.Workers,
 					Usage: "Specify how many worker nodes you want to spawn",
 				},
 				cli.BoolFlag{
@@ -162,7 +185,7 @@ func main() {
 				cli.StringFlag{
 					Name:  "name, n",
 					Usage: "Name of the k3d cluster that you want to add a node to [only for node name if --k3s is set]",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 				},
 				cli.IntFlag{
 					Name:  "count, c",
@@ -212,7 +235,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "name of the cluster",
 				},
 				cli.BoolFlag{
@@ -237,7 +260,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "Name of the cluster",
 				},
 				cli.BoolFlag{
@@ -254,7 +277,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "Name of the cluster",
 				},
 				cli.BoolFlag{
@@ -278,7 +301,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "Name of the cluster",
 				},
 				cli.BoolFlag{
@@ -300,7 +323,7 @@ func main() {
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "name, n, cluster, c",
-					Value: defaultK3sClusterName,
+					Value: conf.ClusterName,
 					Usage: "Name of the cluster",
 				},
 				cli.BoolFlag{
@@ -352,4 +375,42 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func loadConfig() (Config, error) {
+	confDir, confDirerr := os.UserConfigDir()
+	if confDirerr != nil {
+		return Config{}, confDirerr
+	}
+
+	conf := Config{
+		ClusterName: defaultK3sClusterName,
+		Workers:     0,
+	}
+
+	confFilePath := filepath.Join(confDir, "k3d.yaml")
+	if _, err := os.Stat(confFilePath); err == nil {
+		confFile, err := ioutil.ReadFile(confFilePath)
+		if err != nil {
+			return Config{}, err
+		}
+
+		if err := yaml.Unmarshal(confFile, &conf); err != nil {
+			return Config{}, err
+		}
+	}
+
+	for _, serverArg := range conf.ServerArgs {
+		if err := defaultServerArgs.Set(serverArg); err != nil {
+			return Config{}, err
+		}
+	}
+
+	for _, agentArg := range conf.AgentArgs {
+		if err := defaultAgentArgs.Set(agentArg); err != nil {
+			return Config{}, err
+		}
+	}
+
+	return conf, nil
 }
