@@ -38,7 +38,7 @@ func main() {
 	// Configuration file loading
 	conf, confErr := loadConfig()
 	if confErr != nil {
-		panic(fmt.Sprintf("Error while loading configuration: %s", confErr))
+		log.Fatalf("Error while loading configuration: %s", confErr)
 	}
 
 	// App Details
@@ -387,7 +387,7 @@ func loadConfig() (Config, error) {
 			return Config{}, err
 		}
 
-		if err := yaml.Unmarshal(confFile, &conf); err != nil {
+		if err := yaml.UnmarshalStrict(confFile, &conf); err != nil {
 			return Config{}, err
 		}
 	}
