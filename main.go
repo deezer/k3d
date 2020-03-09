@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
@@ -31,6 +32,19 @@ type Config struct {
 	ServerArgs  []string `yaml:"server-args"`
 	AgentArgs   []string `yaml:"agent-args"`
 	Workers     int      `yaml:"workers"`
+	Hooks       `yaml:"hooks"`
+}
+
+// Hooks stores the global and per-command hooks
+type Hooks struct {
+	Global   Hook            `yaml:"global"`
+	Commands map[string]Hook `yaml:"commands"`
+}
+
+// Hook stores the pre and post hooks
+type Hook struct {
+	Pre  [][]string `yaml:"pre"`
+	Post [][]string `yaml:"post"`
 }
 
 // main represents the CLI application
@@ -343,6 +357,11 @@ func main() {
 		},
 	}
 
+	for key := range app.Commands {
+		app.Commands[key].Before = registerCommandHook("pre", conf)
+		app.Commands[key].After = registerCommandHook("post", conf)
+	}
+
 	// Global flags
 	app.Flags = []cli.Flag{
 		cli.BoolFlag{
@@ -367,6 +386,15 @@ func main() {
 				FullTimestamp: true,
 			})
 		}
+
+		if err := runHooks(conf.Hooks.Global.Pre, "pre", "global"); err != nil {
+			log.Fatal(err)
+		}
+
+		if err := runHooks(conf.Hooks.Global.Post, "post", "global"); err != nil {
+			log.Fatal(err)
+		}
+
 		return nil
 	}
 
@@ -398,6 +426,10 @@ func loadConfig() (Config, error) {
 		if err := yaml.UnmarshalStrict(confFile, &conf); err != nil {
 			return Config{}, err
 		}
+
+		if err := validateHooks(conf.Hooks); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	for _, serverArg := range conf.ServerArgs {
@@ -413,4 +445,80 @@ func loadConfig() (Config, error) {
 	}
 
 	return conf, nil
+}
+
+func validateHooks(hooks Hooks) error {
+	validCommands := map[string]interface{}{
+		"check-tools":    nil,
+		"shell":          nil,
+		"create":         nil,
+		"add-node":       nil,
+		"delete":         nil,
+		"stop":           nil,
+		"start":          nil,
+		"list":           nil,
+		"get-kubeconfig": nil,
+		"import-images":  nil,
+		"version":        nil,
+		"help":           nil,
+	}
+
+	for cmd := range hooks.Commands {
+		if _, ok := validCommands[cmd]; !ok {
+			return fmt.Errorf("Error in declared hooks. Command %s does not exist", cmd)
+		}
+	}
+
+	return nil
+}
+
+func registerCommandHook(hookType string, config Config) func(*cli.Context) error {
+	return func(ctx *cli.Context) error {
+		allowedHookTypes := map[string]interface{}{
+			"pre":  nil,
+			"post": nil,
+		}
+
+		if _, ok := allowedHookTypes[hookType]; !ok {
+			return fmt.Errorf("Unknown hook type %s", hookType)
+		}
+
+		commandName := ctx.Command.Name
+
+		if hooks, ok := config.Hooks.Commands[commandName]; ok {
+			var calledHook [][]string
+
+			switch hookType {
+			case "pre":
+				calledHook = hooks.Pre
+			case "post":
+				calledHook = hooks.Post
+			default:
+				return fmt.Errorf("Undefined %s hook type", hookType)
+			}
+
+			if err := runHooks(calledHook, hookType, commandName); err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		return nil
+	}
+}
+
+func runHooks(hooks [][]string, hookType, commandName string) error {
+	for _, hook := range hooks {
+		cmdName, args := hook[0], hook[1:]
+		cmd := exec.Command(cmdName, args...)
+		log.Infof("Running %s-hook %s's command \"%s\"", hookType, commandName, cmd.String())
+		output, err := cmd.CombinedOutput()
+
+		if err != nil {
+			return fmt.Errorf("Error in %s's %s-hook execution: %s", commandName, hookType, err)
+		}
+
+		log.Debugf("%s's %s-hook output:\n%s\n", commandName, hookType, output)
+	}
+
+	return nil
 }
