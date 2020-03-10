@@ -512,12 +512,11 @@ func runHooks(hooks [][]string, hookType, commandName string) error {
 		cmd := exec.Command(cmdName, args...)
 		log.Infof("Running %s-hook %s's command \"%s\"", hookType, commandName, cmd.String())
 		output, err := cmd.CombinedOutput()
+		log.Debugf("%s's %s-hook output:\n%s\n", commandName, hookType, output)
 
 		if err != nil {
 			return fmt.Errorf("Error in %s's %s-hook execution: %s", commandName, hookType, err)
 		}
-
-		log.Debugf("%s's %s-hook output:\n%s\n", commandName, hookType, output)
 	}
 
 	return nil
